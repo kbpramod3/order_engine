@@ -4,15 +4,17 @@ import path from "path";
 
 export function workerLogger(workerName: string) {
   const logDir = path.join(process.cwd(), "logs");
+  const isDev = process.env.NODE_ENV !== "production";
 
   if (!fs.existsSync(logDir)) {
     fs.mkdirSync(logDir);
   }
 
   return pino({
-    level: "info",
+    level: isDev ? "debug" : "info",
     base: { worker: workerName },
-    transport: {
+    transport: isDev
+      ? {
       targets: [
         {
           target: "pino-pretty",
@@ -28,7 +30,7 @@ export function workerLogger(workerName: string) {
           },
         },
       ],
-    },
+    } : undefined,
   });
 }
 

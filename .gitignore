@@ -27,11 +27,6 @@ Thumbs.db
 .vscode/
 .idea/
 
-# Prisma
-prisma/generated/
-generated/
-.prisma/
-
 # Docker garbage
 docker-data/
 

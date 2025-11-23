@@ -5,8 +5,9 @@ import "./queues/order.events";
 import orderRoutes from "./controllers/order.controler";
 import websocketRoutes from "./routes/ws.route";
 
+const isDev = process.env.NODE_ENV !== "production";
 
-export const appLogger = {
+export const appLogger = isDev ? {
   transport: {
     targets: [
       {
@@ -18,7 +19,7 @@ export const appLogger = {
       }
     ]
   }
-};
+} : true;
 
 
 export const buildApp = async () => {

@@ -1,66 +1,86 @@
 services:
   api:
     build: .
+    image: engine-app
     container_name: order-api
+    command: sh -c "npx prisma migrate deploy && node dist/server.js"
     ports:
       - "3000:3000"
     env_file:
       - .env.production
     depends_on:
-      - redis
-      - postgres
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
 
   worker:
-    build: .
+    image: engine-app
     container_name: order-worker
-    command: npm run worker
+    command: ["node", "dist/worker.js"]
     env_file:
       - .env.production
     depends_on:
-      - redis
-      - postgres
-
-  dbsync:
-    build: .
-    container_name: db-sync-worker
-    command: npm run dbworker
-    env_file:
-      - .env.production
-    depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
 
   stream:
-    build: .
+    image: engine-app
     container_name: stream-worker
-    command: npm run stream
+    command: ["node", "dist/worker/stream.worker.js"]
     env_file:
       - .env.production
     depends_on:
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
 
   limit:
-    build: .
+    image: engine-app
     container_name: limit-worker
-    command: npm run limit
+    command: ["node", "dist/worker/limit.worker.js"]
     env_file:
       - .env.production
     depends_on:
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
 
   sniper:
-    build: .
+    image: engine-app
     container_name: sniper-worker
-    command: npm run sniper
+    command: ["node", "dist/worker/sniper.worker.js"]
     env_file:
       - .env.production
     depends_on:
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  dbsync:
+    image: engine-app
+    container_name: db-sync-worker
+    command: ["node", "dist/worker/dbsync.worker.js"]
+    env_file:
+      - .env.production
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
 
   redis:
     image: redis:7
     container_name: redis
     ports:
       - "6379:6379"
+    volumes:
+      - redisdata:/data
 
   postgres:
     image: postgres:15
@@ -71,6 +91,12 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
 volumes:
   pgdata:
+  redisdata:
