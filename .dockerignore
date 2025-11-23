@@ -1,0 +1,25 @@
+node_modules
+npm-debug.log
+yarn-error.log
+
+dist-test/
+coverage/
+tests/
+__tests__/
+
+.vscode
+.idea
+.git
+.gitignore
+Dockerfile
+docker-compose.yml
+
+.env
+.env.local
+.env.*  
+
+logs
+*.log
+
+# K6
+k6/

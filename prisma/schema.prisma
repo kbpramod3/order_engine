@@ -1,0 +1,73 @@
+generator client {
+  provider   = "prisma-client-js"
+  output     = "../generated/prisma"
+  engineType = "client"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Order {
+  id            String        @id @default(cuid())
+  type          OrderType
+  tokenIn       String
+  tokenOut      String
+  amount        Decimal       @db.Decimal(20, 10)
+
+  status        OrderStatus   @default(pending)
+  dexUsed       DexType?
+  executedPrice Decimal?      @db.Decimal(20, 10)
+  txHash        String?
+
+  limitPrice    Decimal?      @db.Decimal(20, 10)
+
+  launchCondition String?
+  poolAddress     String?
+
+  events        OrderEvent[]
+  failures      OrderFailure?
+
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+}
+
+model OrderEvent {
+  id        String     @id @default(cuid())
+  order     Order      @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  orderId   String
+
+  status    OrderStatus
+  metadata  Json?
+
+  createdAt DateTime   @default(now())
+}
+
+model OrderFailure {
+  id          String   @id @default(cuid())
+  order       Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  orderId     String   @unique
+  reason      String
+  attempts    Int      @default(0)
+  lastAttempt DateTime @default(now())
+}
+
+enum OrderType {
+  market
+  limit
+  sniper
+}
+
+enum OrderStatus {
+  pending
+  routing
+  building
+  submitted
+  confirmed
+  failed
+}
+
+enum DexType {
+  RAYDIUM
+  METEORA
+}

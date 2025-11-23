@@ -1,0 +1,46 @@
+# Node.js
+node_modules/
+npm-debug.log
+yarn-error.log
+pnpm-debug.log
+
+# Build output
+dist/
+build/
+.tmp/
+
+# Environment files
+.env
+.env.* 
+!.env.example
+
+# Logs
+logs/
+*.log
+debug.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+.vscode/
+.idea/
+
+# Prisma
+prisma/generated/
+generated/
+.prisma/
+
+# Docker garbage
+docker-data/
+
+# Jest cache
+coverage/
+.cache/
+
+# Redis dump
+dump.rdb
+
+# K6 artifacts
+k6/outputs/
