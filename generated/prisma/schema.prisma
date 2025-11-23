@@ -6,42 +6,41 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
 model Order {
-  id            String        @id @default(cuid())
-  type          OrderType
-  tokenIn       String
-  tokenOut      String
-  amount        Decimal       @db.Decimal(20, 10)
+  id       String    @id @default(cuid())
+  type     OrderType
+  tokenIn  String
+  tokenOut String
+  amount   Decimal   @db.Decimal(20, 10)
 
-  status        OrderStatus   @default(pending)
+  status        OrderStatus @default(pending)
   dexUsed       DexType?
-  executedPrice Decimal?      @db.Decimal(20, 10)
+  executedPrice Decimal?    @db.Decimal(20, 10)
   txHash        String?
 
-  limitPrice    Decimal?      @db.Decimal(20, 10)
+  limitPrice Decimal? @db.Decimal(20, 10)
 
   launchCondition String?
   poolAddress     String?
 
-  events        OrderEvent[]
-  failures      OrderFailure?
+  events   OrderEvent[]
+  failures OrderFailure?
 
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model OrderEvent {
-  id        String     @id @default(cuid())
-  order     Order      @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  orderId   String
+  id      String @id @default(cuid())
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  orderId String
 
-  status    OrderStatus
-  metadata  Json?
+  status   OrderStatus
+  metadata Json?
 
-  createdAt DateTime   @default(now())
+  createdAt DateTime @default(now())
 }
 
 model OrderFailure {
