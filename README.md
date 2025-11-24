@@ -1,5 +1,8 @@
 ### ⚡ Order Execution Engine — Decentralized Exchange (DEX)
 
+**Live URL:**
+👉 [https://order-engine.netlify.app/](https://order-engine.netlify.app/)
+
 ### 📌 Project Overview
 
 This project implements a **high-throughput order execution engine** tailored for the **Solana ecosystem**, focusing on:
@@ -535,6 +538,12 @@ All Dockerized components were deployed to an **AWS EC2 instance** using Docker 
 * Network isolation between services
 * External access only for API & WebSocket server
 * Persistent volumes for PostgreSQL & Redis
+
+### Ngrok HTTPS Tunnel
+
+* Created a secure HTTPS tunnel to the EC2 backend using Ngrok.
+* Exposed the EC2 HTTP server to a public HTTPS URL for easy access.
+
 
 ### 📜 Logging & Monitoring
 
