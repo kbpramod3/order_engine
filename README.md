@@ -1,209 +1,567 @@
-### Order Execution Engine- Decentralized Exchange(DEX)
+### ⚡ Order Execution Engine — Decentralized Exchange (DEX)
 
-### Project Overview
+### 📌 Project Overview
 
-This project delivers a high-throughput order execution engine designed for the Solana ecosystem, focusing on intelligent decentralized exchange(DEX) routing and real-time client communication.
+This project implements a **high-throughput order execution engine** tailored for the **Solana ecosystem**, focusing on:
 
+* Intelligent decentralized exchange (DEX) routing
+* Real-time order lifecycle updates via WebSockets
+* Scalable & fault-tolerant processing using distributed workers
 
-### Problem Statement
+The engine emulates core components of real trading systems used in modern DEX platforms.
 
-The goal was to build a robust, scalable engine capable of processing concurrent trading orders,intelligently routing them to the best execution venue(Raydium or Meteora), and providing traders with instant status updates via WebSocket throughout the order lifecycle.
+---
 
-![Architecture](./assets/architecture.png)
+### 🎯 Problem Statement
 
-### Order Types Supported
+The goal was to build a **robust, scalable, and fault-tolerant execution engine** that can:
 
-The engine successfully supports all three core order types: Market, Limit, and Sniper.
+* Process a large number of **parallel trading orders**
+* **Intelligently route** each order to the best execution venue (Raydium or Meteora)
+* Ensure each user receives **instant, live status updates** through a dedicated WebSocket channel
+* Maintain transparent, predictable execution state across Redis, Workers, and PostgreSQL
 
-● Implementation Progression: The system was initially built to handle Market Orders(immediate execution). This foundation was then extended to integrate the more complex logic required for Limit Orders(conditional execution based on target price) and Sniper Orders(execution triggered by specific liquidity or launch events).
-
-•Engine Extensibility: The modular worker and routing structure ensures that each order type is processed by dedicated workers, showcasing a high degree of separation of concerns and future extensibility.
-
-### Implementation Option: Mock Execution
-
-This implementation uses Mock Execution. This choice allowed us to prioritize and rigorously test the core requirements: the architecture, queue management, concurrent processing, real-time WebSocket communication, and complex routing logic. DEX responses are simulated with realistic delays(2-3 seconds) and mock price variations(2-5% difference) to ensure the router functions correctly.
-
-### Core Order Execution Flow
-
-The system processes orders through a seamless flow, providing real-time transparency via a single HTTP/WebSocket endpoint:
-
-1. Order Submission: User submits an order via POST/api/orders/execute.
-
-2. API Validation& WS Upgrade: The API validates the order, returns a unique orderld, and immediately upgrades the HTTP connection to a WebSocket for live status updates.
-
-3. DEX Routing: The system concurrently fetches real-time quotes from the mock Raydium and Meteora pools. It compares prices and selected liquidity to determine the optimal execution venue.
-
-4. Execution Progress: The client receives status updates as the order moves through the system:
-
-"pending": Order received and queued.
-
-"routing": Comparing DEX prices.
-
-"building": Creating the transaction payload.
-
-"submitted": Transaction simulated to be sent to the network.
-
-"confirmed": Transaction successful(includes mock txHash).
-
-"failed": If any step fails(includes error/reason).
-
-5. Transaction Settlement: The engine simulates the execution of the swap, handling slippage protection and returning the final execution price and transaction hash.
-
-### Key Technologies
-
-
-
-| Technology | Purpose |
-| --- | --- |
-| Node.js+ TypeScript | Core runtime environment, ensuring type safety and robust data integrity. |
-| Fastify | High-performance web framework with built- in WebSocket support. |
-| BullMQ+ Redis | Robust distributed queue system for concurrent and reliable order processing, retries, and rate limiting. |
-| PostgreSQL+Prisma | Primary database for persistent storage of complete order history, managed by the Prisma ORM. |
-| Redis | High-speed cache for storing and monitoring active order states and transient data. |
-| Pino | High-performance logging for production- grade monitoring and diagnostics. |
-
-### Key Features
-
-Decoupling and Scalability: The architecture achieves microservice-like decoupling within a single repository, making each worker independent and allowing for linear scalability through horizontal scaling of worker processes.
-
-● Distributed Worker Model: Dedicated workers for price streaming, limit order matching,sniper triggers, and order execution ensure linear scalability and high resilience.
-
-High-Speed Matching: Orders are stored in Redis using a bucket model for$O(1)$ lookup, using specific keys like limit_bucket:{pair}:{price}, allowing instant execution for multiple orders at the same price.
-
-Best Price Execution\& Fallback: Continuously computes and caches the BEST price across multiple DEXs(Raydium, Meteora). Includes caching& fallback logic where if the stream is temporarily unavailable, the system safely defaults to directly querying the DEXs.
-
-Real-time Notifications: Uses WebSockets and QueueEvents to stream order stage updates from the Order Worker to the client.
-
-Fintech-Grade Foundation: Built for throughput, using BullMQ for job queuing,
-
-PostgreSQL for persistent storage, and implementing Exponential Backoff with Jitter for robust retry behavior.
-
-### System Architecture
-
-The trading engine is built on a highly decoupled microservices architecture, leveraging BullMQ for reliable, distributed task processing. This architecture emphasizes processor separation,worker orchestration, and high-throughput event pipelines.
-
-•Client: Initiates the order and maintains a WebSocket connection to receive real-time status updates.
-
-Server: Acts as the API gateway, handles WebSocket upgrades, and routes orders to the appropriate BullMQ queues.
-
-● Workers(BullMQ): Independent services that handle the heavy lifting of routing, execution,and data synchronization.
-
-● PostgreSQL: The source of truth for all historical trading data and completed order records.
-
-● Redis: Serves as the message broker for BullMQ and acts as a high-speed cache for active order states and transient data.
+Below is the high-level architecture used to achieve this:
 
 ![Architecture](./assets/architecture.png)
 
-### 3 Component Deep Dive
+---
 
-### 1. API Server(Fastify)
+### ✅ Order Types Supported
 
-The Fastify server is the primary entry point for all user interactions.
+This engine implements **three essential trading order types**:
 
-● Logging: Uses Pino for efficient, structured logging across all API endpoints and server events, critical for production monitoring.
+* **Market Orders** — Execute immediately at the best available price
+* **Limit Orders** — Execute only when the target price condition is reached
+* **Sniper Orders** — Execute instantly when a token becomes available or a liquidity condition is met
 
-● Connectivity: It is connected directly to both the PostgreSQL database(for initial record creation via Prisma) and the Redis instance(for queue management and real-time state updates).
+The system was incrementally designed:
 
-● Distribution Logic: Upon receiving an order, the server validates the payload, adds the initial order details to PostgreSQL, and then distributes the order job into the appropriate BullMQ queue.
+1. **Market Orders** (base pipeline)
+2. **Limit Orders** (Redis buckets + conditional triggers)
+3. **Sniper Orders** (liquidity/availability triggers)
 
-● Real-time: The server manages the WebSocket connections, enabling immediate streaming of status updates back to the originating client.
+Each order type runs on its **own dedicated worker**, ensuring scalability and clean separation of concerns.
 
-### 2. Order Worker(BullMQ)
+---
 
-The core execution engine for Market Orders and the final step for conditional orders.
+### 🧪 Implementation Mode — Mock Execution
 
-Order Routing through Jobs: Execution logic is encapsulated as a BullMQ job. The orderld is used directly as the jobld to ensure idempotency(preventing duplicate execution).
+To focus deeply on architecture, reliability, and real-time behavior, the engine uses a **Mock Execution Mode**:
 
-Concurrency Control: Each job is locked while being processed, preventing other workers from concurrently accessing and executing the same order, thereby enforcing concurrency control.
+* DEX quotes returned with **realistic delays (2–3 seconds)**
+* Prices vary randomly by **2–5%**
+* Execution simulates real settlement with **slippage, routing, and confirmation stages**
 
-Resilience: The worker attempts retries using Exponential Backoff with Jitter($\le 3$ attempts). If the job fails, it moves to a Dead Letter Queue(DLQ) for auditing and post-mortem analysis.
+This allowed validating:
 
-Workflow: It executes the trade, handles slippage simulation, and updates the order status in Redis before signaling the DBSync Worker.
+* Queue behavior
+* Worker concurrency
+* WebSocket streaming
+* Redis caching
+* Failover & fallback logic
 
-### 3. Stream Worker
+without requiring on-chain execution.
 
-This component is dedicated to distributing real-time state changes and ensuring efficient quote acquisition.
+---
 
-● DEX Quote Caching: To prevent continuously hitting external DEX APls, the Stream Worker polls Raydium and Meteora every 500ms and caches the results in Redis using Hash Sets.
+### 🔄 Core Order Execution Flow
 
-Caching& Fallback: The worker implements a fallback strategy: if the live stream of quotes encounters an error, it defaults to using the last successfully cached quotes from Redis, ensuring continuous operation.
+1. **Order Submission**
+   User submits an order via:
+   `POST /api/orders/execute`
 
-Redis Keys: The caching keys are: quotes:${tokenln}-${tokenOut}:RAYDIUM,quotes:${tokenIn}-${tokenOut}:METEORA, and quotes:${tokenIn}-${tokenOut}:BEST.
+2. **Validation & WebSocket Upgrade**
+   API validates input → returns `orderId` → upgrades to WebSocket.
 
-Role: The Stream Worker monitors execution events and uses QueueEvents to broadcast status updates to the API Server's WebSocket layer.
+3. **DEX Routing**
+   System fetches quotes from mock Raydium & Meteora → selects best venue.
 
-### 4. DBSync Worker(BullMQ)
+4. **Execution Progress (Live Streaming)**
+   User receives real-time updates such as:
 
-Ensuring data integrity and persistence.
+   * `pending`
+   * `routing`
+   * `building`
+   * `submitted`
+   * `confirmed`
+   * `failed`
 
-Database Consistency: This worker is crucial for database consistency. It asynchronously synchronizes the final, complete order record from the transient Redis cache to the persistent PostgreSQL database(managed by Prisma).
+5. **Settlement Simulation**
+   Engine simulates the transaction, slippage, final price, and mock `txHash`.
 
-Process: This separation of concerns ensures that the main execution path is never blocked by slow disk I/O, allowing for high throughput.
 
-### 5. Conditional Order Workers(Limit and Sniper)
+### 🛠️ Key Technologies
 
-These specialized workers manage the execution of conditional orders.
+| Technology               | Purpose                                                                                       |
+| ------------------------ | --------------------------------------------------------------------------------------------- |
+| **Node.js + TypeScript** | Strong, type-safe backend runtime ensuring reliability and maintainable code.                 |
+| **Fastify**              | Ultra-fast web framework with built-in WebSocket support for real-time updates.               |
+| **BullMQ + Redis**       | Distributed job queues enabling high-throughput processing, retries, DLQs, and rate-limiting. |
+| **PostgreSQL + Prisma**  | Robust transactional database with type-safe ORM for persistent order storage.                |
+| **Redis**                | High-speed in-memory cache for active orders, price feeds, and instant matching.              |
+| **Pino**                 | Production-grade structured logging with extremely low overhead.                              |
 
-Limit Worker(High-Speed Matching): This worker utilizes a Redis bucket model for$O(1)$ complexity matching. Order details and the list of orders at a specific price level are managed by Redis keys: orderKey= limit:${pair}:${orderld} and bucketKey=limit_bucket:${pair}:{order.limitPrice}.
+---
 
-- Sniper Worker: Watches for on-chain events. Both workers achieve order routing through jobs by pushing the orderld to the main Order Worker queue upon condition fulfillment.
+### 🚀 Key Features
 
-### Testing and Quality Assurance
+#### 🔹 1. Decoupled & Scalable Architecture
 
-A rigorous testing methodology was employed to ensure the reliability and performance of the engine.
+The engine is built using a **microservice-like worker model**, each running independently:
 
-### Unit and Integration Testing
+* API Server
+* Order Execution Worker
+* DBSync Worker
+* Stream Worker
+* Limit Worker
+* Sniper Worker
 
-Comprehensive unit tests cover critical modules, including:
+This separation allows **linear scaling** by simply increasing worker replicas.
 
-Routing Logic: Ensuring correct price comparison and optimal DEX selection.
+---
 
-Queue Behavior: Validating order distribution, concurrency limits, and resilient retry logic.We utilize Exponential Backoff with Jitter to randomize retry timing and prevent thundering herd issues. Failed jobs are moved to a Dead Letter Queue(DLQ) for later auditing.
+#### 🔹 2. Distributed Worker Model (BullMQ)
 
-●WebSocket Lifecycle: Verifying that all status updates are correctly emitted and streamed.
+Each worker focuses on a single responsibility:
 
+* **Order Worker** → Executes all market + triggered orders
+* **Limit Worker** → Monitors price buckets & triggers executions
+* **Sniper Worker** → Watches liquidity / token availability events
+* **Stream Worker** → Fetches & caches Raydium/Meteora quotes
+* **DBSync Worker** → Persists order results to PostgreSQL
+
+This ensures reliability, throughput, and resilience.
+
+---
+
+#### 🔹 3. ⚡ High-Speed Matching with Redis Buckets (O(1) Execution)
+
+Limit orders are stored in Redis using an **O(1) lookup model**:
+
+```
+limit_bucket:{pair}:{price} → Set(orderIds)
+limit:{pair}:{orderId}      → OrderDetails
+```
+
+When the Stream Worker updates the BEST price, the Limit Worker instantly checks bucket keys and dispatches all matching orders.
+
+This design enables **instant triggering for multiple orders at the same price**, even under heavy load.
+
+---
+
+#### 🔹 4. 🧠 Best Price Execution + Failover
+
+The engine continuously compares quotes from:
+
+* **Raydium**
+* **Meteora**
+
+It calculates `BEST = max(price - fee)` and stores it in Redis as:
+
+```
+quotes:{tokenIn}-{tokenOut}:BEST
+```
+
+If live price streaming fails, the system automatically:
+
+➡️ Falls back to cached quotes
+➡️ Or fetches fresh quotes directly from the DEX router
+
+This ensures uninterrupted execution reliability.
+
+---
+
+#### 🔹 5. 🔔 Real-time Notifications via WebSockets
+
+Each order establishes a **dedicated WebSocket channel**:
+
+```
+ws://server/ws/{orderId}
+```
+
+The user receives live updates as the order moves through:
+
+* `pending`
+* `routing`
+* `building`
+* `submitted`
+* `confirmed`
+* `failed`
+
+Powered by BullMQ’s **QueueEvents**, ensuring immediate push updates.
+
+---
+
+#### 🔹 6. 💪 Fintech-Grade Reliability & Retry Logic
+
+The system uses:
+
+* **Exponential Backoff**
+* **Jitter**
+* **Auto-retries (≤3 attempts)**
+* **Dead Letter Queue (DLQ)** for failed jobs
+* **Stalled job recovery**
+* **Job idempotency via jobId = orderId**
+
+
+## 🏗️ System Architecture
+
+The trading engine is designed using a **highly decoupled, distributed microservices-style architecture**, powered by **BullMQ** for resilient task orchestration and **Redis** for ultra-fast in-memory state management.
+
+This architecture enables:
+
+* High throughput
+* Fault isolation
+* Horizontal scalability
+* Real-time feedback loops
+
+![Architecture](./assets/architecture.png)
+
+### 🔸 Core Components Overview
+
+* **🧑‍💻 Client**
+  Initiates orders and maintains a WebSocket connection for real-time execution updates.
+
+* **🛣️ API Server (Fastify)**
+  Acts as the API gateway. Handles WebSocket upgrades, validates orders, stores early state, and dispatches jobs to workers.
+
+* **⚙️ Workers (BullMQ)**
+  Individually responsible for routing, executing, syncing, and monitoring orders.
+
+* **🗄️ PostgreSQL**
+  The source of truth for all completed, historical, or audited trades.
+
+* **⚡ Redis**
+  Powers BullMQ queues and stores active order states, cached quotes, buckets, and transient metadata.
+
+---
+
+## 🔍 3-Level Deep Dive into Core Components
+
+---
+
+## 1️⃣ API Server (Fastify)
+
+The **Fastify server** is the primary entry point of the system.
+
+### 🔧 Key Responsibilities
+
+#### ✔️ Structured Logging (Pino)
+
+Provides production-grade logs with metadata, timestamps, and worker-context — essential for debugging high-throughput systems.
+
+#### ✔️ DB + Redis Connectivity
+
+* Creates initial order entries in **PostgreSQL (via Prisma)**
+* Stores immediate state in **Redis** for fast retrieval
+* Dispatches jobs to **BullMQ queues**
+
+#### ✔️ Order Distribution Logic
+
+Upon receiving `/api/orders/execute`:
+
+1. Validate input
+2. Create a preliminary DB record
+3. Push job → **order queue**
+4. Open WebSocket channel
+5. Return `orderId` instantly
+
+#### ✔️ Real-Time WS Communication
+
+Streams every stage update:
+
+* `pending`
+* `routing`
+* `building`
+* `submitted`
+* `confirmed`
+* `failed`
+
+---
+
+## 2️⃣ Order Worker (BullMQ)
+
+The **heart of the engine** — responsible for executing all Market orders and final execution for triggered Limit/Sniper orders.
+
+### 🧠 Core Features
+
+#### ✔️ Job Routing
+
+Uses **orderId as jobId** → ensures **idempotency** and prevents duplicates.
+
+#### ✔️ Concurrency Control
+
+Ensures only **one worker** processes a given order job at a time.
+
+#### ✔️ High Resilience
+
+* Retries with **Exponential Backoff + Jitter**
+* Max 3 attempts
+* Failed jobs → **Dead Letter Queue (DLQ)**
+
+#### ✔️ Execution Workflow
+
+1. Fetch BEST price
+2. Build mock DEX transaction
+3. Simulate slippage
+4. Mark Redis state
+5. Notify DBSync Worker
+
+This worker guarantees correctness and integrity under load.
+
+---
+
+## 3️⃣ Stream Worker
+
+The **data backbone** for pricing, event broadcasting, and real-time routing.
+
+### ⚡ Responsibilities
+
+#### ✔️ Ultra-Fast Quote Polling
+
+Every **500ms**, fetch simulated Raydium + Meteora quotes:
+
+* Caches them in Redis as **HASHES**
+* Computes and saves `BEST` price
+
+Redis keys include:
+
+```
+quotes:{tokenIn}-{tokenOut}:RAYDIUM
+quotes:{tokenIn}-{tokenOut}:METEORA
+quotes:{tokenIn}-{tokenOut}:BEST
+```
+
+#### ✔️ Fallback Logic
+
+If API fetch fails → use last known cached quote.
+
+#### ✔️ QueueEvents Broadcaster
+
+Pushes live updates (from Order Worker) into the WebSocket layer.
+
+---
+
+## 4️⃣ DBSync Worker (BullMQ)
+
+Ensures **database integrity** by moving finalized orders from Redis → PostgreSQL.
+
+### 🧾 Why This Worker Exists
+
+Decoupling DB writes prevents:
+
+* Slow disk I/O blocking real-time execution
+* Queue congestion
+* Backpressure issues
+
+### 📌 Function
+
+* Reads finalized order state from Redis
+* Constructs a complete DB object
+* Inserts into PostgreSQL (Prisma)
+
+This ensures *high throughput + strong consistency*.
+
+---
+
+## 5️⃣ Conditional Workers – Limit & Sniper
+
+These workers handle logic that must run **continuously** or be **event-triggered**.
+
+---
+
+### 🎯 Limit Worker — O(1) Price Matching
+
+Uses Redis buckets for instant execution:
+
+#### Redis Structure
+
+```
+orderKey  = limit:{pair}:{orderId}
+bucketKey = limit_bucket:{pair}:{targetPrice}
+```
+
+#### How It Works
+
+* Watches BEST price
+* If BEST ≥ targetPrice → move all orderIds in bucket → Order Worker queue
+* Guarantees **instant trigger under load**
+
+---
+
+### 🎯 Sniper Worker — Event-Based Execution
+
+Designed for:
+
+* Token launch snipes
+* Liquidity events
+* Volume spikes
+
+It triggers an order the moment required conditions are met.
+
+
+## 🧪 Testing & Quality Assurance
+
+A rigorous testing workflow was implemented to ensure the reliability, correctness, and high-performance behavior of the engine.
+
+---
+
+## ✅ Unit & Integration Testing
+
+Comprehensive tests were written to validate all critical subsystems:
+
+### 🧭 **Routing Logic**
+
+Ensures the engine always selects the optimal DEX (Raydium/Meteora) based on quotes, liquidity, and timestamps.
+
+### 🧱 **Queue Behavior**
+
+Verified:
+
+* Correct job distribution
+* Concurrency safety
+* Retry logic with **Exponential Backoff + Jitter**
+* Automatic fallback to the **Dead Letter Queue (DLQ)** for failed jobs
+
+### 🔄 **WebSocket Lifecycle**
+
+Ensures every order stage (`pending → routing → building → submitted → confirmed`) is pushed to the connected client in real-time.
+
+📌 **Unit Tests Screenshot**
 ![Unit and Integration Testing](./assets/jest.png)
 
-### Manual Testing
+---
 
-Manual testing was performed via the provided Postman/lnsomnia collection to simulate real-world usage and verify the end-to-end flow of Market, Limit, and Sniper orders.
+## 🧪 Manual Testing
 
-### K6 Load Testing
+End-to-end scenarios for Market, Limit, and Sniper orders were validated using Postman/Insomnia.
 
-Load testing using K6 was executed to assess the system's performance and stability under stress, specifically targeting a throughput of 100 orders per minute with$\le 10$ concurrent orders.
+This helped ensure:
+
+* Input validation
+* WebSocket status delivery
+* Correct queue routing
+* Accurate Redis + DB sync behavior
+
+---
+
+## 🔥 K6 Load Testing (High Throughput)
+
+K6 tests were executed to benchmark throughput, concurrency, latency, and worker stability.
+
+### 🎯 Load Test Target
+
+* **100 orders/min** sustained
+* **≤ 10 concurrent executions**
+
+---
+
+## 🚀 K6 Load Testing (High Throughput)
+
+*Market, Limit, Sniper & WebSocket channels tested independently.*
+
+### 📊 Summary Table
+
+| Test Scenario               | Goal                                           |
+| --------------------------- | ---------------------------------------------- |
+| **Market Order Throughput** | Validate sustained market execution under load |
+| **Limit Order Throughput**  | Stress-test O(1) bucket model + trigger logic  |
+| **Sniper Order Throughput** | Validate instant execution when triggers fire  |
+| **WebSocket Stability**     | Verify 1000+ status message broadcasts         |
+
+---
+
+## 📈 Market Order Load Test
+
+![Market Order Test](./assets/k6-market.png)
+
+---
+
+## 📈 Limit Order Load Test
+
+![Limit Order Test](./assets/k6-limit.png)
+
+---
+
+## ⚡ Sniper Order Load Test
+
+![Sniper Order Test](./assets/k6-sniper.png)
+
+---
+
+## 🔌 WebSocket Stability Test
+
+![WebSocket Load Test](./assets/k6-ws.png)
+
+---
 
 
+## 🚀 Deployment
 
-| Test Scenario | Goal | Result Image |
-| --- | --- | --- |
-| Market Order Throughput | Test sustained execution rate and latency for Market Orders. | ![Market](./assets/k6-market.png)  |
-| Limit Order Throughput | Test the performance of the conditional logic under high load. | ![Limit](./assets/k6-limit.png) |
-| Sniper Order Throughput | Test the rapid execution efficiency upon trigger. | ![Sniper](./assets/k6-sniper.png) |
-| WebSocket Stability | Test simultaneous WebSocket connections and continuous status streaming. | ![Websocket](./assets/k6-ws.png) |
+The entire system is deployed using **Docker-based microservice separation**, highlighting production standards and real-world engineering practices.
 
-### Deployment
+---
 
-The entire application is deployed using a containerized approach, demonstrating strong backend engineering and production-grade architecture.
+## 🐳 Multi-Stage Docker Deployment
 
-### Multi-Stage Docker Deployment
+To ensure small and secure production images:
 
-● Multi-stage optimization is utilized in the Dockerfile to create small, secure, and production-ready images for the Server and all Worker services.
+* **Builder stage** compiles TypeScript → optimized JS
+* **Runtime stage** runs only the compiled dist (no dev dependencies)
+* Images include:
 
-● The deployment includes separate containers for all components, showcasing a fully distributed Microservice-like separation within the deployment context: Server, Order Worker, Limit/Sniper Workers, DBSync Worker, Stream Worker, PostgreSQL, and Redis.
+  * API Server
+  * Order Worker
+  * Limit Worker
+  * Sniper Worker
+  * Stream Worker
+  * DBSync Worker
+  * PostgreSQL
+  * Redis
 
-### EC2 Instance Deployment& Monitoring
+This demonstrates **clean separation of concerns** similar to a distributed microservices environment.
 
-●All containerized components are deployed onto an Amazon EC2 instance using Docker Compose. This provides robust EC2 hosting for the production environment.
+---
 
-● Logs+ monitoring are facilitated by the use of Pino for structured logging, allowing centralized log aggregation and analysis for debugging and performance tracking.
+## ☁️ EC2 Deployment & Monitoring
 
-### s Frontend Access
+All Dockerized components were deployed to an **AWS EC2 instance** using Docker Compose.
 
-A simple web interface was developed to demonstrate the core functionality and visualize the real-time WebSocket status updates.
+### EC2 Setup Provided:
 
-Live URL:(https://order-engine.netlify.app/)
+* Hardened environment
+* Multi-container orchestration
+* Network isolation between services
+* External access only for API & WebSocket server
+* Persistent volumes for PostgreSQL & Redis
 
+### 📜 Logging & Monitoring
 
-### Thank You
+Using **Pino structured logging**, enabling:
 
-Thank You for reviewing the Order Execution Engine. This project was designed to showcase expertise in distributed systems, reliable queue systems, robust caching layers, streaming+WebSockets, and scalable application architecture in a complex financial domain.
+* Timestamped event tracking
+* Worker-by-worker logs
+* Failure analysis
+* Performance debugging
+
+---
+
+## 🌐 Frontend Access
+
+A minimal frontend was created to visualize real-time order updates.
+
+**Live URL:**
+👉 [https://order-engine.netlify.app/](https://order-engine.netlify.app/)
+
+This UI demonstrates:
+
+* WebSocket live stages
+* Market/Limit/Sniper order flows
+* End-to-end testing in the browser
+
+---
+
+## 🙏 Thank You
+
+Thank you for reviewing the **Order Execution Engine**.
